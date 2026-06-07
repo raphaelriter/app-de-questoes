@@ -2,11 +2,12 @@ import streamlit as st
 import pandas as pd
 import unicodedata
 import re
+import math
 
 st.set_page_config(page_title="Caderno de Questões", layout="centered")
 
 # ==========================================
-# ⚙️ FUNÇÃO DE ESTERILIZAÇÃO DE TEXTO
+# ⚙️ FUNÇÕES DE ESTERILIZAÇÃO E MATEMÁTICA
 # ==========================================
 def padronizar(texto):
     if pd.isna(texto): return ""
@@ -14,6 +15,34 @@ def padronizar(texto):
     texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8')
     texto = re.sub(r'[^a-z0-9]', '', texto)
     return texto
+
+def distribuir_vagas_exatas(dicionario_pesos, vagas_totais):
+    """
+    Algoritmo de Maior Resto (Hamilton): Garante que a soma das vagas 
+    seja estritamente igual à quantidade solicitada, sem inflação de arredondamento.
+    """
+    soma_pesos = sum(dicionario_pesos.values())
+    if soma_pesos == 0 or vagas_totais <= 0:
+        return {k: 0 for k in dicionario_pesos}
+    
+    # 1. Calcula a cota exata (com decimais) para cada item
+    cotas_exatas = {k: (v / soma_pesos) * vagas_totais for k, v in dicionario_pesos.items()}
+    
+    # 2. Garante a parte inteira (piso) para cada um
+    alocacao = {k: math.floor(v) for k, v in cotas_exatas.items()}
+    
+    # 3. Calcula quantas vagas sobraram devido ao corte dos decimais
+    vagas_restantes = int(vagas_totais - sum(alocacao.values()))
+    
+    # 4. Ordena os itens pelos maiores restos decimais e distribui as sobras
+    restos = {k: cotas_exatas[k] - alocacao[k] for k in cotas_exatas}
+    ordenados_por_resto = sorted(restos.keys(), key=lambda x: restos[x], reverse=True)
+    
+    for i in range(vagas_restantes):
+        if i < len(ordenados_por_resto):
+            alocacao[ordenados_por_resto[i]] += 1
+            
+    return alocacao
 
 # ==========================================
 # ⚙️ MOTOR DE PROPORÇÕES (PESOS RELATIVOS)
@@ -113,7 +142,7 @@ if df_base.empty:
     st.error("Arquivo questoes.csv não encontrado ou vazio.")
     st.stop()
 
-# --- 3. LÓGICA DE GERAÇÃO INTELIGENTE ---
+# --- 3. LÓGICA DE GERAÇÃO INTELIGENTE (COTA EXATA) ---
 def resetar_progresso():
     st.session_state.indice = 0
     st.session_state.acertos = 0
@@ -122,50 +151,53 @@ def resetar_progresso():
 
 def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
     frames = []
-    peso_total_edital = sum(sum(a.values()) for a in PROPORCOES_INSS.values())
     
     # ROTA 1: SIMULADO INSS
     if prova == "INSS" and modo == "Simulado":
+        pesos_disciplinas = {d: sum(assuntos.values()) for d, assuntos in PROPORCOES_INSS.items()}
+        vagas_disciplinas = distribuir_vagas_exatas(pesos_disciplinas, qtd_desejada)
+        
         for d, assuntos_dict in PROPORCOES_INSS.items():
             d_pad = padronizar(d)
-            peso_disciplina = sum(assuntos_dict.values())
-            qtd_disciplina = (peso_disciplina / peso_total_edital) * qtd_desejada if peso_total_edital > 0 else 0
+            vagas_d = vagas_disciplinas[d]
             
-            for a, peso in assuntos_dict.items():
-                a_pad = padronizar(a)
-                qtd_calc = round((peso / peso_disciplina) * qtd_disciplina) if peso_disciplina > 0 else 0
-                
-                filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
-                qtd_real = min(qtd_calc, len(filtro))
-                if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
+            vagas_assuntos = distribuir_vagas_exatas(assuntos_dict, vagas_d)
+            
+            for a, qtd_calc in vagas_assuntos.items():
+                if qtd_calc > 0:
+                    a_pad = padronizar(a)
+                    filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
+                    qtd_real = min(qtd_calc, len(filtro))
+                    if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
                 
     # ROTA 2: QUESTÕES INSS PROPORCIONAIS
     elif prova == "INSS" and modo == "Questões":
         if disc == "Todas":
+            pesos_disciplinas = {d: sum(assuntos.values()) for d, assuntos in PROPORCOES_INSS.items()}
+            vagas_disciplinas = distribuir_vagas_exatas(pesos_disciplinas, qtd_desejada)
+            
             for d, assuntos_dict in PROPORCOES_INSS.items():
                 d_pad = padronizar(d)
-                peso_disciplina = sum(assuntos_dict.values())
-                qtd_disciplina = (peso_disciplina / peso_total_edital) * qtd_desejada if peso_total_edital > 0 else 0
+                vagas_d = vagas_disciplinas[d]
+                vagas_assuntos = distribuir_vagas_exatas(assuntos_dict, vagas_d)
                 
-                for a, peso in assuntos_dict.items():
-                    a_pad = padronizar(a)
-                    qtd_calc = round((peso / peso_disciplina) * qtd_disciplina) if peso_disciplina > 0 else 0
-                    
-                    filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
-                    qtd_real = min(qtd_calc, len(filtro))
-                    if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
-                    
+                for a, qtd_calc in vagas_assuntos.items():
+                    if qtd_calc > 0:
+                        a_pad = padronizar(a)
+                        filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
+                        qtd_real = min(qtd_calc, len(filtro))
+                        if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
+                        
         elif ass == "Todos":
             d_pad = padronizar(disc)
             if disc in PROPORCOES_INSS:
-                peso_disciplina = sum(PROPORCOES_INSS[disc].values())
-                for a, peso in PROPORCOES_INSS[disc].items():
-                    a_pad = padronizar(a)
-                    qtd_calc = round((peso / peso_disciplina) * qtd_desejada) if peso_disciplina > 0 else 0
-                    
-                    filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
-                    qtd_real = min(qtd_calc, len(filtro))
-                    if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
+                vagas_assuntos = distribuir_vagas_exatas(PROPORCOES_INSS[disc], qtd_desejada)
+                for a, qtd_calc in vagas_assuntos.items():
+                    if qtd_calc > 0:
+                        a_pad = padronizar(a)
+                        filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
+                        qtd_real = min(qtd_calc, len(filtro))
+                        if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
             else:
                 filtro = df_base[df_base['Disc_pad'] == d_pad]
                 qtd_real = min(qtd_desejada, len(filtro))
@@ -200,7 +232,7 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
         resetar_progresso()
         
         if len(prova_final) < qtd_desejada and modo == "Questões" and prova == "INSS":
-            st.sidebar.warning(f"⚠️ Solicitadas {qtd_desejada} questões, mas só encontrei {len(prova_final)} em banco mapeadas no Edital INSS.")
+            st.sidebar.warning(f"⚠️ Solicitadas {qtd_desejada} questões, mas só encontrei {len(prova_final)} mapeadas no banco que atendem à regra.")
     else:
         st.sidebar.error("Nenhuma questão encontrada no banco para estes critérios.")
 
@@ -229,13 +261,13 @@ with st.sidebar.expander("🛠️ Diagnóstico do Banco"):
     st.dataframe(resumo_banco, use_container_width=True, hide_index=True)
 
 with st.sidebar.expander("📊 Questões do Teste (Raio-X)"):
-    st.caption("Veja a estrutura exata da prova gerada no momento:")
+    st.caption("Estrutura exata da prova gerada:")
     if st.session_state.df_ativo.empty:
-        st.info("Nenhum teste gerado ainda. Configure abaixo e gere a prova.")
+        st.info("Nenhum teste gerado.")
     else:
         resumo_teste = st.session_state.df_ativo.groupby(['Disciplina', 'Assunto']).size().reset_index(name='Qtd no Teste')
         st.dataframe(resumo_teste, use_container_width=True, hide_index=True)
-        st.markdown(f"**Total carregado:** {len(st.session_state.df_ativo)} questões")
+        st.markdown(f"**Total alocado:** {len(st.session_state.df_ativo)} vagas preenchidas")
 
 prova_sel = st.sidebar.selectbox("1. Prova", ["", "INSS"])
 modo_sel = st.sidebar.selectbox("2. Modo", ["Questões", "Simulado"])
@@ -280,7 +312,7 @@ c_erro.metric("Erros ❌", st.session_state.erros)
 df_prova = st.session_state.df_ativo
 
 if df_prova.empty:
-    st.info("👈 Ajuste os filtros na barra lateral. Utilize a ferramenta 'Diagnóstico do Banco' para conferir suas questões.")
+    st.info("👈 Ajuste os filtros na barra lateral para iniciar.")
     st.stop()
 
 col_nav_esq, col_nav_meio, col_nav_dir = st.columns([1, 2, 1])
