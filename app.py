@@ -8,7 +8,6 @@ st.set_page_config(page_title="Caderno de Questões", layout="centered")
 # ==========================================
 # ⚙️ FUNÇÃO DE ESTERILIZAÇÃO DE TEXTO
 # ==========================================
-# Essa função destrói acentos, espaços e símbolos para garantir o match perfeito.
 def padronizar(texto):
     if pd.isna(texto): return ""
     texto = str(texto).strip().lower()
@@ -225,9 +224,18 @@ def limpar_dados():
 st.sidebar.header("Configurar Bateria")
 
 with st.sidebar.expander("🛠️ Diagnóstico do Banco"):
-    st.caption("Verifique como os nomes foram salvos no seu CSV. Se houver divergência absurda com o Edital (ex: 'Dir. Prev' em vez de 'Direito Previdenciário'), você precisará corrigir no arquivo.")
+    st.caption("Verifique como os nomes foram salvos no seu CSV. Corrija divergências no arquivo.")
     resumo_banco = df_base.groupby(['Disciplina', 'Assunto']).size().reset_index(name='Qtd Cadastrada')
     st.dataframe(resumo_banco, use_container_width=True, hide_index=True)
+
+with st.sidebar.expander("📊 Questões do Teste (Raio-X)"):
+    st.caption("Veja a estrutura exata da prova gerada no momento:")
+    if st.session_state.df_ativo.empty:
+        st.info("Nenhum teste gerado ainda. Configure abaixo e gere a prova.")
+    else:
+        resumo_teste = st.session_state.df_ativo.groupby(['Disciplina', 'Assunto']).size().reset_index(name='Qtd no Teste')
+        st.dataframe(resumo_teste, use_container_width=True, hide_index=True)
+        st.markdown(f"**Total carregado:** {len(st.session_state.df_ativo)} questões")
 
 prova_sel = st.sidebar.selectbox("1. Prova", ["", "INSS"])
 modo_sel = st.sidebar.selectbox("2. Modo", ["Questões", "Simulado"])
