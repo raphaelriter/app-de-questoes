@@ -1,15 +1,24 @@
 import streamlit as st
 import pandas as pd
-import math
+import unicodedata
+import re
 
 st.set_page_config(page_title="Caderno de Questões", layout="centered")
 
 # ==========================================
+# ⚙️ FUNÇÃO DE ESTERILIZAÇÃO DE TEXTO
+# ==========================================
+# Essa função destrói acentos, espaços e símbolos para garantir o match perfeito.
+def padronizar(texto):
+    if pd.isna(texto): return ""
+    texto = str(texto).strip().lower()
+    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8')
+    texto = re.sub(r'[^a-z0-9]', '', texto)
+    return texto
+
+# ==========================================
 # ⚙️ MOTOR DE PROPORÇÕES (PESOS RELATIVOS)
 # ==========================================
-# O sistema calcula a distribuição sozinho com base nesses números. 
-# Não se preocupe em "fechar a conta", ele usa regras de proporção (Regra de 3) 
-# baseada na quantidade total de questões que você pedir no filtro.
 PROPORCOES_INSS = {
     "Direito Previdenciário": {
         "Princípios e Objetivos da Seguridade Social": 4.55,
@@ -96,8 +105,8 @@ def carregar_dados():
     for col in colunas_esperadas:
         if col not in df.columns: df[col] = "Sem informação"
         
-    df['Disc_pad'] = df['Disciplina'].astype(str).str.strip().str.lower()
-    df['Ass_pad'] = df['Assunto'].astype(str).str.strip().str.lower()
+    df['Disc_pad'] = df['Disciplina'].apply(padronizar)
+    df['Ass_pad'] = df['Assunto'].apply(padronizar)
     return df
 
 df_base = carregar_dados()
@@ -105,7 +114,7 @@ if df_base.empty:
     st.error("Arquivo questoes.csv não encontrado ou vazio.")
     st.stop()
 
-# --- 3. LÓGICA DE GERAÇÃO INTELIGENTE (MATEMÁTICA ADAPTATIVA) ---
+# --- 3. LÓGICA DE GERAÇÃO INTELIGENTE ---
 def resetar_progresso():
     st.session_state.indice = 0
     st.session_state.acertos = 0
@@ -116,15 +125,15 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
     frames = []
     peso_total_edital = sum(sum(a.values()) for a in PROPORCOES_INSS.values())
     
-    # ROTA 1: SIMULADO INSS (Calcula cota global de cada disciplina e distribui pelos assuntos)
+    # ROTA 1: SIMULADO INSS
     if prova == "INSS" and modo == "Simulado":
         for d, assuntos_dict in PROPORCOES_INSS.items():
-            d_pad = str(d).strip().lower()
+            d_pad = padronizar(d)
             peso_disciplina = sum(assuntos_dict.values())
             qtd_disciplina = (peso_disciplina / peso_total_edital) * qtd_desejada if peso_total_edital > 0 else 0
             
             for a, peso in assuntos_dict.items():
-                a_pad = str(a).strip().lower()
+                a_pad = padronizar(a)
                 qtd_calc = round((peso / peso_disciplina) * qtd_disciplina) if peso_disciplina > 0 else 0
                 
                 filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
@@ -135,12 +144,12 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
     elif prova == "INSS" and modo == "Questões":
         if disc == "Todas":
             for d, assuntos_dict in PROPORCOES_INSS.items():
-                d_pad = str(d).strip().lower()
+                d_pad = padronizar(d)
                 peso_disciplina = sum(assuntos_dict.values())
                 qtd_disciplina = (peso_disciplina / peso_total_edital) * qtd_desejada if peso_total_edital > 0 else 0
                 
                 for a, peso in assuntos_dict.items():
-                    a_pad = str(a).strip().lower()
+                    a_pad = padronizar(a)
                     qtd_calc = round((peso / peso_disciplina) * qtd_disciplina) if peso_disciplina > 0 else 0
                     
                     filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
@@ -148,11 +157,11 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
                     if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
                     
         elif ass == "Todos":
-            d_pad = str(disc).strip().lower()
+            d_pad = padronizar(disc)
             if disc in PROPORCOES_INSS:
                 peso_disciplina = sum(PROPORCOES_INSS[disc].values())
                 for a, peso in PROPORCOES_INSS[disc].items():
-                    a_pad = str(a).strip().lower()
+                    a_pad = padronizar(a)
                     qtd_calc = round((peso / peso_disciplina) * qtd_desejada) if peso_disciplina > 0 else 0
                     
                     filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
@@ -163,18 +172,18 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
                 qtd_real = min(qtd_desejada, len(filtro))
                 if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
         else:
-            d_pad = str(disc).strip().lower()
-            a_pad = str(ass).strip().lower()
+            d_pad = padronizar(disc)
+            a_pad = padronizar(ass)
             filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
             qtd_real = min(qtd_desejada, len(filtro))
             if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
 
-    # ROTA 3: MODO LIVRE (CORINGAS)
+    # ROTA 3: MODO LIVRE
     else: 
         if not st.session_state.regras_simulado: return
         for r in st.session_state.regras_simulado:
-            d_pad = str(r['Disciplina']).strip().lower()
-            a_pad = str(r['Assunto']).strip().lower()
+            d_pad = padronizar(r['Disciplina'])
+            a_pad = padronizar(r['Assunto'])
             
             if d_pad == "todas":
                 filtro = df_base.copy()
@@ -186,7 +195,6 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
             qtd_real = min(r['Qtd'], len(filtro))
             if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
 
-    # Junta, embaralha e inicia
     if frames:
         prova_final = pd.concat(frames).sample(frac=1).reset_index(drop=True)
         st.session_state.df_ativo = prova_final
@@ -213,14 +221,17 @@ def limpar_dados():
     st.session_state.df_ativo = pd.DataFrame()
     resetar_progresso()
 
-# --- 4. BARRA LATERAL (FILTROS) ---
+# --- 4. BARRA LATERAL ---
 st.sidebar.header("Configurar Bateria")
+
+with st.sidebar.expander("🛠️ Diagnóstico do Banco"):
+    st.caption("Verifique como os nomes foram salvos no seu CSV. Se houver divergência absurda com o Edital (ex: 'Dir. Prev' em vez de 'Direito Previdenciário'), você precisará corrigir no arquivo.")
+    resumo_banco = df_base.groupby(['Disciplina', 'Assunto']).size().reset_index(name='Qtd Cadastrada')
+    st.dataframe(resumo_banco, use_container_width=True, hide_index=True)
 
 prova_sel = st.sidebar.selectbox("1. Prova", ["", "INSS"])
 modo_sel = st.sidebar.selectbox("2. Modo", ["Questões", "Simulado"])
 
-# Agora bloqueia APENAS a seleção de matéria/assunto no simulado. 
-# A quantidade de questões fica livre para você definir o tamanho do simulado.
 travar_disc_ass = (prova_sel == "INSS" and modo_sel == "Simulado")
 
 disc_disp = ["Todas"] + list(df_base['Disciplina'].unique())
@@ -232,7 +243,6 @@ else:
     ass_disp = ["Todos"] + list(df_base[df_base['Disciplina'] == disc_sel]['Assunto'].unique())
     
 ass_sel = st.sidebar.selectbox("4. Assunto", ass_disp, disabled=travar_disc_ass)
-
 qtd_sel = st.sidebar.number_input("5. Qtd", min_value=1, value=120)
 
 if prova_sel == "INSS":
@@ -262,7 +272,7 @@ c_erro.metric("Erros ❌", st.session_state.erros)
 df_prova = st.session_state.df_ativo
 
 if df_prova.empty:
-    st.info("👈 Ajuste os filtros na barra lateral. Se não quiser as proporções do edital INSS, deixe 'Prova' em branco e use o Modo Manual.")
+    st.info("👈 Ajuste os filtros na barra lateral. Utilize a ferramenta 'Diagnóstico do Banco' para conferir suas questões.")
     st.stop()
 
 col_nav_esq, col_nav_meio, col_nav_dir = st.columns([1, 2, 1])
