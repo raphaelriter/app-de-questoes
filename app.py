@@ -17,24 +17,14 @@ def padronizar(texto):
     return texto
 
 def distribuir_vagas_exatas(dicionario_pesos, vagas_totais):
-    """
-    Algoritmo de Maior Resto (Hamilton): Garante que a soma das vagas 
-    seja estritamente igual à quantidade solicitada, sem inflação de arredondamento.
-    """
     soma_pesos = sum(dicionario_pesos.values())
     if soma_pesos == 0 or vagas_totais <= 0:
         return {k: 0 for k in dicionario_pesos}
     
-    # 1. Calcula a cota exata (com decimais) para cada item
     cotas_exatas = {k: (v / soma_pesos) * vagas_totais for k, v in dicionario_pesos.items()}
-    
-    # 2. Garante a parte inteira (piso) para cada um
     alocacao = {k: math.floor(v) for k, v in cotas_exatas.items()}
-    
-    # 3. Calcula quantas vagas sobraram devido ao corte dos decimais
     vagas_restantes = int(vagas_totais - sum(alocacao.values()))
     
-    # 4. Ordena os itens pelos maiores restos decimais e distribui as sobras
     restos = {k: cotas_exatas[k] - alocacao[k] for k in cotas_exatas}
     ordenados_por_resto = sorted(restos.keys(), key=lambda x: restos[x], reverse=True)
     
@@ -45,69 +35,124 @@ def distribuir_vagas_exatas(dicionario_pesos, vagas_totais):
     return alocacao
 
 # ==========================================
-# ⚙️ MOTOR DE PROPORÇÕES (PESOS RELATIVOS)
+# ⚙️ MOTOR DE PROPORÇÕES (INSS 2022 - 240 QUESTÕES BASE)
 # ==========================================
 PROPORCOES_INSS = {
-    "Direito Previdenciário": {
-        "Princípios e Objetivos da Seguridade Social": 4.55,
-        "Financiamento da Seguridade Social": 4.55,
-        "Saúde, Previdência Social e Assistência Social": 6.82,
-        "Origem e Evolução Legislativa da Seguridade Social": 0.76,
-        "Legislação Previdenciária (Fontes, Aplicação, Hierarquia etc.)": 3.79,
-        "Empregado (RGPS)": 1.52,
-        "Empregado Doméstico (RGPS)": 0.76,
-        "Contribuinte Individual (RGPS)": 0.76,
-        "Segurado Especial (RGPS)": 1.52,
-        "Segurado Facultativo (RGPS)": 1.52,
-        "Da Manutenção e da Perda da Qualidade de Segurado": 3.03,
-        "Tópicos Mesclados sobre Segurados (RGPS)": 1.52,
-        "Dos Dependentes (RGPS)": 1.52,
-        "Conceito de Empresa e Empregador Doméstico": 3.03,
-        "Carência": 0.76,
-        "Do Cálculo do Valor do Benefício": 2.27,
-        "Das Aposentadorias por Tempo de Contribuição e por Idade do Segurado com Deficiência": 3.79,
-        "Do Salário-Maternidade": 0.76,
-        "Da Pensão por Morte": 1.52,
-        "Seguro Desemprego, FAT e Abono Salarial": 3.79,
-        "Do Reconhecimento da Filiação": 3.79,
-        "Da Contagem Recíproca de Tempo de Serviço": 5.30,
-        "Da Habilitação e Reabilitação de Profissionais e do Serviço Social": 2.27,
-        "Das Disposições Diversas e Transitórias Relativas às Prestações (Prescrição, Decadência e Outros)": 6.06,
-        "Do Salário-de-Contribuição": 6.06,
-        "Da Arrecadação e Recolhimento das Contribuições (Prescrição, Decadência e Outros)": 3.03,
-        "Receitas das Contribuições Sociais": 2.27,
-        "Receitas de Outras Fontes": 0.76,
-        "Recursos das Decisões Administrativas": 3.03,
-        "Regime Próprio de Previdência Social na Constituição Federal": 0.76,
-        "Dos Princípios e das Diretrizes (arts. 4º e 5º da Lei nº 8.742/93)": 0.76,
-        "Da Organização e da Gestão (arts. 6º a 19 da Lei nº 8.742/93)": 0.76,
-        "Dos Benefícios (arts. 20 a 22 da Lei nº 8.742/93)": 3.79,
-        "Dos Serviços, Programas de Assistência Social e Enfrentamento da Pobreza (arts. 23 a 26-H da Lei nº 8.742/93)": 1.52,
-        "Decreto nº 6.214/2007 - Regulamento do Benefício de Prestação Continuada (BPC)": 0.76,
-        "Lei nº 7.070/1982 - Pensão Especial para Portadores da Síndrome de Talidomida": 1.52,
-        "Lei nº 7.986/1989 - Pensão Especial aos Seringueiros": 1.52,
-        "Lei nº 8.059/1990 - Pensão Especial devida aos Ex-Combatentes da Segunda Guerra Mundial": 1.52,
-        "Lei nº 9.422/1996 - Pensão Especial às Vítimas de Hemodiálise de Caruaru": 0.76,
-        "Lei nº 9.425/1996 - Pensão Especial às Vítimas do Acidente Nuclear Ocorrido em Goiânia (CÉSIO 137)": 0.76,
-        "Lei nº 10.559/2002 - Aposentadoria e Pensão Excepcional ao Anistiado Político": 1.52,
-        "Lei nº 10.779/2003 - Seguro Desemprego ao Pescador Artesanal (Seguro Defeso)": 0.76,
-        "Lei nº 11.520/2007 - Pensão Especial às Pessoas Atingidas pela Hanseníase": 0.76,
-        "Lei nº 13.985/2020 - Pensão Especial Destinada a Crianças com Síndrome Congênita do Zika Vírus": 1.52
-    },
-    "Língua Portuguesa": {
-        "Interpretação de Textos": 8.0,
-        "Crase": 2.0,
-        "Sintaxe": 5.0
-    },
     "Direito Administrativo": {
-        "Licitações": 3.0,
-        "Atos Administrativos": 2.0,
-        "Organização Administrativa": 2.0,
-        "Processo Administrativo (Lei n° 9.784/1999)": 2.0
+        "Origem, Conceito e Fontes do Direito Administrativo": 4.0,
+        "Desfazimento do Ato Administrativo (Anulação, Revogação, Cassação, Caducidade,": 1.0,
+        "Poder Regulamentar": 1.0,
+        "Abuso de Poder: Excesso de Poder e Desvio de Finalidade (Poderes da Administração)": 1.0,
+        "Administração Indireta": 1.0,
+        "Desconcentração e Descentralização": 1.0,
+        "Conceitos Iniciais e Teorias da Responsabilidade": 1.0,
+        "Conceitos (Serviços Públicos - Lei nº 8.987/1995)": 1.0,
+        "Lei nº 11.079/2004 - Parceria Público-Privada (PPP)": 1.0,
+        "Controle Administrativo (Direito Administrativo)": 1.0,
+        "Classificação dos Agentes Públicos": 1.0,
+        "Formas de Provimento (arts. 5º a 32 da Lei nº 8.112/1990)": 1.0,
+        "Do Regime Disciplinar (arts. 116 a 142 da Lei nº 8.112/1990)": 1.0,
+        "Das Disposições Gerais (arts. 1º a 8º-A da Lei nº 8.429/1992)": 2.0,
+        "Da Competência (arts. 11 a 17 da Lei nº 9.784/1999)": 1.0,
+        "Dos Impedimentos e da Suspeição (arts. 18 a 21 da Lei nº 9.784/1999)": 1.0,
     },
     "Direito Constitucional": {
-        "Direitos e Garantias Fundamentais": 4.0
-    }
+        "Dos Direitos e Deveres Individuais e Coletivos (art. 5º da CF/1988)": 6.0,
+        "Direitos Sociais e dos Trabalhadores (arts. 6º e 7º da CF/1988)": 1.0,
+        "Direitos Coletivos dos Trabalhadores (arts. 8º a 11 da CF/1988)": 1.0,
+        "Espécies de Nacionalidade (Brasileiros Natos e Naturalizados)": 1.0,
+        "Distinções Constitucionais entre Brasileiros Natos e Naturalizados": 1.0,
+        "Inelegibilidades (Direitos Políticos)": 1.0,
+        "Perda e Suspensão dos Direitos Políticos": 1.0,
+        "Disposições Gerais (Administração Pública - arts. 37 e 38 da CF/1988)": 6.0,
+        "Dos Servidores Públicos (arts. 39 a 41 da CF/1988)": 2.0,
+        "Emenda Constitucional nº 103/2019 (arts. 3º a 34) - Reforma da Previdência": 2.0,
+    },
+    "Direito Previdenciário": {
+        "Da Apropriação Indébita (arts. 168 a 170 do CP)": 3.0,
+        "Sonegação de Contribuição Previdenciária (art. 337-A do CP)": 3.0,
+        "Princípios e Objetivos da Seguridade Social": 6.0,
+        "Financiamento da Seguridade Social": 6.0,
+        "Saúde, Previdência Social e Assistência Social": 9.0,
+        "Origem e Evolução Legislativa da Seguridade Social": 1.0,
+        "Legislação Previdenciária (Fontes, Aplicação, Hierarquia etc.)": 5.0,
+        "Empregado (RGPS)": 2.0,
+        "Empregado Doméstico (RGPS)": 1.0,
+        "Contribuinte Individual (RGPS)": 1.0,
+        "Segurado Especial (RGPS)": 2.0,
+        "Segurado Facultativo (RGPS)": 2.0,
+        "Da Manutenção e da Perda da Qualidade de Segurado": 4.0,
+        "Tópicos Mesclados sobre Segurados (RGPS)": 2.0,
+        "Dos Dependentes (RGPS)": 2.0,
+        "Conceito de Empresa e Empregador Doméstico": 4.0,
+        "Carência": 1.0,
+        "Do Cálculo do Valor do Benefício": 3.0,
+        "Das Aposentadorias por Tempo de Contribuição e por Idade do Segurado com Deficiência": 5.0,
+        "Do Salário-Maternidade": 1.0,
+        "Da Pensão por Morte": 2.0,
+        "Seguro Desemprego, FAT e Abono Salarial": 5.0,
+        "Do Reconhecimento da Filiação": 5.0,
+        "Da Contagem Recíproca de Tempo de Serviço": 7.0,
+        "Da Habilitação e Reabilitação de Profissionais e do Serviço Social": 3.0,
+        "Das Disposições Diversas e Transitórias Relativas às Prestações (Prescrição, Decadência e Outros)": 8.0,
+        "Do Salário-de-Contribuição": 8.0,
+        "Da Arrecadação e Recolhimento das Contribuições (Prescrição, Decadência e Outros)": 4.0,
+        "Receitas das Contribuições Sociais": 3.0,
+        "Receitas de Outras Fontes": 1.0,
+        "Recursos das Decisões Administrativas": 4.0,
+        "Regime Próprio de Previdência Social na Constituição Federal": 1.0,
+        "Dos Princípios e das Diretrizes (arts. 4º e 5º da Lei nº 8.742/93)": 1.0,
+        "Da Organização e da Gestão (arts. 6º a 19 da Lei nº 8.742/93)": 1.0,
+        "Dos Benefícios (arts. 20 a 22 da Lei nº 8.742/93)": 5.0,
+        "Dos Serviços, Programas de Assistência Social e Enfrentamento da Pobreza (arts. 23 a 26-H da Lei nº 8.742/93)": 2.0,
+        "Decreto nº 6.214/2007 - Regulamento do Benefício de Prestação Continuada (BPC)": 1.0,
+        "Lei nº 7.070/1982 - Pensão Especial para Portadores da 'Síndrome de Talidomida'": 2.0,
+        "Lei nº 7.986/1989 - Pensão Especial aos Seringueiros": 2.0,
+        "Lei nº 8.059/1990 - Pensão Especial devida aos Ex-Combatentes da Segunda Guerra Mundial": 2.0,
+        "Lei nº 9.422/1996 - Pensão Especial às Vítimas de Hemodiálise de Caruaru": 1.0,
+        "Lei nº 9.425/1996 - Pensão Especial às Vítimas do Acidente Nuclear Ocorrido em Goiânia (CÉSIO 137)": 1.0,
+        "Lei nº 10.559/2002 - Aposentadoria e Pensão Excepcional ao Anistiado Político": 2.0,
+        "Lei nº 10.779/2003 - Seguro Desemprego ao Pescador Artesanal (Seguro Defeso)": 1.0,
+        "Lei nº 11.520/2007 - Pensão Especial às Pessoas Atingidas pela Hanseníase": 1.0,
+        "Lei nº 13.985/2020 - Pensão Especial Destinada a Crianças com Síndrome Congênita do Zika Vírus": 2.0,
+    },
+    "Ética no Serviço Público": {
+        "Decreto nº 1.171/1994 - Código de Conduta do Servidor Público Civil do Poder Executivo Federal": 6.0,
+        "Decreto nº 6.029/2007 - Sistema de Gestão da Ética do Poder Executivo Federal": 6.0,
+    },
+    "Informática": {
+        "Windows 10": 4.0,
+        "Excel 2019": 2.0,
+        "Conceitos de Internet": 1.0,
+        "Intranet e Extranet": 1.0,
+        "Outlook 2019": 1.0,
+        "Ameaças (Vírus, Worms, Trojans, Malware, etc.)": 1.0,
+    },
+    "Língua Portuguesa": {
+        "Uso do Hífen": 1.0,
+        "Conjugação. Reconhecimento e Emprego dos Modos e Tempos Verbais": 1.0,
+        "Conjunção": 2.0,
+        "Questões Variadas de Classe de Palavras": 1.0,
+        "Orações Subordinadas Adjetivas": 2.0,
+        "Pontuação (Ponto, Vírgula, Travessão, Aspas, Parênteses, etc)": 1.0,
+        "Crase": 1.0,
+        "Concordância (Verbal e Nominal)": 2.0,
+        "Coerência. Coesão (Anáfora, Catáfora, Uso dos Conectores - Pronomes Relativos, Conjunções, etc)": 4.0,
+        "Partícula 'Se'": 1.0,
+        "Interpretação de Textos (Compreensão)": 9.0,
+        "Tipologia e Gênero Textual": 1.0,
+        "Reescrita de Frases. Substituição de Palavras ou Trechos de Texto.": 2.0,
+    },
+    "Matemática": {
+        "Número de Elementos da União, da Intersecção, do Complemento e da Diferença": 1.0,
+        "Porcentagem": 3.0,
+    },
+    "Raciocínio Lógico": {
+        "Proposições: Definição, Reconhecimento, Princípios Lógicos": 1.0,
+        "Tabela Verdade das Proposições Compostas": 3.0,
+        "Tautologia, Contradição e Contingência": 1.0,
+        "Equivalências Lógicas (Inclui Negação de Proposições Compostas)": 1.0,
+    },
 }
 
 # --- 1. INICIALIZAÇÃO DE ESTADOS ---
