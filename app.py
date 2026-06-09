@@ -18,24 +18,14 @@ def padronizar(texto):
     return texto
 
 def distribuir_vagas_exatas(dicionario_pesos, vagas_totais):
-    """
-    Algoritmo de Maior Resto (Hamilton): Garante que a soma das vagas 
-    seja estritamente igual à quantidade solicitada, sem inflação de arredondamento.
-    """
     soma_pesos = sum(dicionario_pesos.values())
     if soma_pesos == 0 or vagas_totais <= 0:
         return {k: 0 for k in dicionario_pesos}
     
-    # 1. Calcula a cota exata (com decimais) para cada item
     cotas_exatas = {k: (v / soma_pesos) * vagas_totais for k, v in dicionario_pesos.items()}
-    
-    # 2. Garante a parte inteira (piso) para cada um
     alocacao = {k: math.floor(v) for k, v in cotas_exatas.items()}
-    
-    # 3. Calcula quantas vagas sobraram devido ao corte dos decimais
     vagas_restantes = int(vagas_totais - sum(alocacao.values()))
     
-    # 4. Ordena os itens pelos maiores restos decimais e distribui as sobras
     restos = {k: cotas_exatas[k] - alocacao[k] for k in cotas_exatas}
     ordenados_por_resto = sorted(restos.keys(), key=lambda x: restos[x], reverse=True)
     
@@ -44,6 +34,42 @@ def distribuir_vagas_exatas(dicionario_pesos, vagas_totais):
             alocacao[ordenados_por_resto[i]] += 1
             
     return alocacao
+
+def extrair_questoes_com_repescagem(df_fonte, dicionario_cotas, d_pad):
+    """
+    Tenta preencher a cota exata. Se faltar questão no banco para um assunto específico, 
+    reaproveita as vagas ociosas puxando de outros assuntos da mesma matéria.
+    """
+    frames = []
+    deficit = 0
+    pool_reserva = []
+    
+    for a, qtd_calc in dicionario_cotas.items():
+        if qtd_calc > 0:
+            a_pad = padronizar(a)
+            filtro = df_fonte[(df_fonte['Disc_pad'] == d_pad) & (df_fonte['Ass_pad'] == a_pad)]
+            
+            qtd_real = min(qtd_calc, len(filtro))
+            if qtd_real > 0:
+                selecionadas = filtro.sample(n=qtd_real)
+                frames.append(selecionadas)
+                
+                # Guarda as questões que sobraram desse assunto para eventual repescagem
+                nao_selecionadas = filtro.drop(selecionadas.index)
+                if not nao_selecionadas.empty:
+                    pool_reserva.append(nao_selecionadas)
+            
+            # Soma as vagas que não foram preenchidas por falta de questão no banco
+            deficit += (qtd_calc - qtd_real)
+            
+    # Se sobrou vaga e temos questões de sobra em outros assuntos, faz a repescagem
+    if deficit > 0 and pool_reserva:
+        df_reserva = pd.concat(pool_reserva)
+        qtd_repescagem = min(deficit, len(df_reserva))
+        if qtd_repescagem > 0:
+            frames.append(df_reserva.sample(n=qtd_repescagem))
+            
+    return frames
 
 # ==========================================
 # ⚙️ MOTOR DE PROPORÇÕES (APENAS PREVIDENCIÁRIO)
@@ -105,7 +131,7 @@ if 'regras_simulado' not in st.session_state: st.session_state.regras_simulado =
 if 'df_ativo' not in st.session_state: st.session_state.df_ativo = pd.DataFrame()
 if 'respostas_dadas' not in st.session_state: st.session_state.respostas_dadas = {}
 
-# --- 2. CARREGAMENTO BLINDADO CONTRA ERROS DE TEXTO E ASPAS ---
+# --- 2. CARREGAMENTO BLINDADO ---
 @st.cache_data
 def carregar_dados():
     try:
@@ -129,7 +155,7 @@ if df_base.empty:
     st.error("Arquivo questoes.csv não encontrado, vazio ou com erro crítico de estrutura.")
     st.stop()
 
-# --- 3. LÓGICA DE GERAÇÃO INTELIGENTE (COTA EXATA) ---
+# --- 3. LÓGICA DE GERAÇÃO INTELIGENTE ---
 def resetar_progresso():
     st.session_state.indice = 0
     st.session_state.acertos = 0
@@ -139,7 +165,6 @@ def resetar_progresso():
 def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
     frames = []
     
-    # ROTA 1: SIMULADO INSS
     if prova == "INSS" and modo == "Simulado":
         pesos_disciplinas = {d: sum(assuntos.values()) for d, assuntos in PROPORCOES_INSS.items()}
         vagas_disciplinas = distribuir_vagas_exatas(pesos_disciplinas, qtd_desejada)
@@ -149,14 +174,10 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
             vagas_d = vagas_disciplinas[d]
             vagas_assuntos = distribuir_vagas_exatas(assuntos_dict, vagas_d)
             
-            for a, qtd_calc in vagas_assuntos.items():
-                if qtd_calc > 0:
-                    a_pad = padronizar(a)
-                    filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
-                    qtd_real = min(qtd_calc, len(filtro))
-                    if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
+            # Chama a função de repescagem para garantir a entrega exata
+            frames_d = extrair_questoes_com_repescagem(df_base, vagas_assuntos, d_pad)
+            frames.extend(frames_d)
                 
-    # ROTA 2: QUESTÕES INSS PROPORCIONAIS
     elif prova == "INSS" and modo == "Questões":
         if disc == "Todas":
             pesos_disciplinas = {d: sum(assuntos.values()) for d, assuntos in PROPORCOES_INSS.items()}
@@ -167,23 +188,15 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
                 vagas_d = vagas_disciplinas[d]
                 vagas_assuntos = distribuir_vagas_exatas(assuntos_dict, vagas_d)
                 
-                for a, qtd_calc in vagas_assuntos.items():
-                    if qtd_calc > 0:
-                        a_pad = padronizar(a)
-                        filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
-                        qtd_real = min(qtd_calc, len(filtro))
-                        if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
+                frames_d = extrair_questoes_com_repescagem(df_base, vagas_assuntos, d_pad)
+                frames.extend(frames_d)
                         
         elif ass == "Todos":
             d_pad = padronizar(disc)
             if disc in PROPORCOES_INSS:
                 vagas_assuntos = distribuir_vagas_exatas(PROPORCOES_INSS[disc], qtd_desejada)
-                for a, qtd_calc in vagas_assuntos.items():
-                    if qtd_calc > 0:
-                        a_pad = padronizar(a)
-                        filtro = df_base[(df_base['Disc_pad'] == d_pad) & (df_base['Ass_pad'] == a_pad)]
-                        qtd_real = min(qtd_calc, len(filtro))
-                        if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
+                frames_d = extrair_questoes_com_repescagem(df_base, vagas_assuntos, d_pad)
+                frames.extend(frames_d)
             else:
                 filtro = df_base[df_base['Disc_pad'] == d_pad]
                 qtd_real = min(qtd_desejada, len(filtro))
@@ -195,7 +208,6 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
             qtd_real = min(qtd_desejada, len(filtro))
             if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
 
-    # ROTA 3: MODO LIVRE
     else: 
         if not st.session_state.regras_simulado: return
         for r in st.session_state.regras_simulado:
@@ -218,7 +230,7 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
         resetar_progresso()
         
         if len(prova_final) < qtd_desejada and modo == "Questões" and prova == "INSS":
-            st.sidebar.warning(f"⚠️ Solicitadas {qtd_desejada} questões, mas só encontrei {len(prova_final)} mapeadas no banco que atendem à regra.")
+            st.sidebar.warning(f"⚠️ Atenção: Você pediu {qtd_desejada} questões, mas a disciplina só possui {len(prova_final)} cadastradas no total do banco.")
     else:
         st.sidebar.error("Nenhuma questão encontrada no banco para estes critérios.")
 
@@ -242,18 +254,18 @@ def limpar_dados():
 st.sidebar.header("Configurar Bateria")
 
 with st.sidebar.expander("🛠️ Diagnóstico do Banco"):
-    st.caption("Verifique como os nomes foram salvos no seu CSV. Corrija divergências no arquivo.")
+    st.caption("Verifique as questões ativas no CSV.")
     resumo_banco = df_base.groupby(['Disciplina', 'Assunto']).size().reset_index(name='Qtd Cadastrada')
     st.dataframe(resumo_banco, use_container_width=True, hide_index=True)
 
 with st.sidebar.expander("📊 Questões do Teste (Raio-X)"):
-    st.caption("Estrutura exata da prova gerada:")
+    st.caption("Estrutura da prova gerada:")
     if st.session_state.df_ativo.empty:
         st.info("Nenhum teste gerado.")
     else:
         resumo_teste = st.session_state.df_ativo.groupby(['Disciplina', 'Assunto']).size().reset_index(name='Qtd no Teste')
         st.dataframe(resumo_teste, use_container_width=True, hide_index=True)
-        st.markdown(f"**Total alocado:** {len(st.session_state.df_ativo)} vagas preenchidas")
+        st.markdown(f"**Total alocado:** {len(st.session_state.df_ativo)} questões")
 
 prova_sel = st.sidebar.selectbox("1. Prova", ["", "INSS"])
 modo_sel = st.sidebar.selectbox("2. Modo", ["Questões", "Simulado"])
@@ -269,7 +281,7 @@ else:
     ass_disp = ["Todos"] + list(df_base[df_base['Disciplina'] == disc_sel]['Assunto'].unique())
     
 ass_sel = st.sidebar.selectbox("4. Assunto", ass_disp, disabled=travar_disc_ass)
-qtd_sel = st.sidebar.number_input("5. Qtd", min_value=1, value=120)
+qtd_sel = st.sidebar.number_input("5. Qtd", min_value=1, value=100)
 
 if prova_sel == "INSS":
     if st.sidebar.button(f"🚀 Gerar {modo_sel} INSS", type="primary", use_container_width=True):
