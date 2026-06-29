@@ -36,10 +36,6 @@ def distribuir_vagas_exatas(dicionario_pesos, vagas_totais):
     return alocacao
 
 def extrair_questoes_com_repescagem(df_fonte, dicionario_cotas, d_pad):
-    """
-    Tenta preencher a cota exata. Se faltar questão no banco para um assunto específico, 
-    reaproveita as vagas ociosas puxando de outros assuntos da mesma matéria.
-    """
     frames = []
     deficit = 0
     pool_reserva = []
@@ -54,15 +50,12 @@ def extrair_questoes_com_repescagem(df_fonte, dicionario_cotas, d_pad):
                 selecionadas = filtro.sample(n=qtd_real)
                 frames.append(selecionadas)
                 
-                # Guarda as questões que sobraram desse assunto para eventual repescagem
                 nao_selecionadas = filtro.drop(selecionadas.index)
                 if not nao_selecionadas.empty:
                     pool_reserva.append(nao_selecionadas)
             
-            # Soma as vagas que não foram preenchidas por falta de questão no banco
             deficit += (qtd_calc - qtd_real)
             
-    # Se sobrou vaga e temos questões de sobra em outros assuntos, faz a repescagem
     if deficit > 0 and pool_reserva:
         df_reserva = pd.concat(pool_reserva)
         qtd_repescagem = min(deficit, len(df_reserva))
@@ -142,10 +135,30 @@ def carregar_dados():
         except:
             return pd.DataFrame()
     
+    # MAPEAMENTO INTELIGENTE DE COLUNAS (Resolve o sumiço dos comentários)
+    mapa_colunas = {}
+    for col in df.columns:
+        c_clean = padronizar(col)
+        if 'id' in c_clean: mapa_colunas[col] = 'ID'
+        elif 'disciplina' in c_clean: mapa_colunas[col] = 'Disciplina'
+        elif 'assunto' in c_clean: mapa_colunas[col] = 'Assunto'
+        elif 'assertiva' in c_clean: mapa_colunas[col] = 'Assertiva'
+        elif 'gabarito' in c_clean: mapa_colunas[col] = 'Gabarito'
+        elif 'comentario' in c_clean: mapa_colunas[col] = 'Comentario'
+        
+    df = df.rename(columns=mapa_colunas)
+    
     colunas_esperadas = ['ID', 'Disciplina', 'Assunto', 'Assertiva', 'Gabarito', 'Comentario']
     for col in colunas_esperadas:
         if col not in df.columns: df[col] = "Sem informação"
         
+    # LIMPEZA DE GABARITO (Resolve o erro do Certo/Errado)
+    df['Gabarito'] = df['Gabarito'].astype(str).str.replace('"', '').str.replace("'", "").str.strip().str.upper()
+    df['Gabarito'] = df['Gabarito'].apply(lambda x: 'C' if x.startswith('C') else ('E' if x.startswith('E') else x))
+    
+    # LIMPEZA DE COMENTÁRIO (Remove aspas residuais do limite do CSV)
+    df['Comentario'] = df['Comentario'].astype(str).str.replace(r'^"|"$', '', regex=True).replace('Sem informação', '')
+    
     df['Disc_pad'] = df['Disciplina'].apply(padronizar)
     df['Ass_pad'] = df['Assunto'].apply(padronizar)
     return df
@@ -174,7 +187,6 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada):
             vagas_d = vagas_disciplinas[d]
             vagas_assuntos = distribuir_vagas_exatas(assuntos_dict, vagas_d)
             
-            # Chama a função de repescagem para garantir a entrega exata
             frames_d = extrair_questoes_com_repescagem(df_base, vagas_assuntos, d_pad)
             frames.extend(frames_d)
                 
@@ -344,4 +356,7 @@ if ja_respondida:
         st.success("✅ Resposta Correta!")
     else:
         st.error(f"❌ Resposta Incorreta. O gabarito é '{gabarito_real}'.")
-    st.info(f"**Comentário:** {questao['Comentario']}")
+    
+    comentario_exibir = str(questao['Comentario']).strip()
+    if comentario_exibir and comentario_exibir != 'nan':
+        st.info(f"**Comentário:** {comentario_exibir}")
