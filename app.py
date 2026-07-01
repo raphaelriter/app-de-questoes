@@ -125,7 +125,7 @@ if 'df_ativo' not in st.session_state: st.session_state.df_ativo = pd.DataFrame(
 if 'respostas_dadas' not in st.session_state: st.session_state.respostas_dadas = {}
 
 # --- 2. CARREGAMENTO BLINDADO ---
-#
+@st.cache_data
 def carregar_dados():
     try:
         df = pd.read_csv("questoes.csv", sep=";", encoding='utf-8', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
