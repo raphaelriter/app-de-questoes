@@ -300,7 +300,7 @@ if prova_sel == "INSS":
         gerar_bateria(prova_sel, modo_sel, disc_sel, ass_sel, qtd_sel)
 else:
     st.sidebar.caption("Modo Manual: Construa a prova bloco a bloco.")
-    if st.sidebar.button("➕ Incluir no Carrinho"):
+    if st.sidebar.button("➕ Selecionar Assunto"):
         st.session_state.regras_simulado.append({'Disciplina': disc_sel, 'Assunto': ass_sel, 'Qtd': qtd_sel})
     
     if st.session_state.regras_simulado:
