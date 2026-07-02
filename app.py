@@ -4,6 +4,7 @@ import unicodedata
 import re
 import math
 import csv
+import json
 
 st.set_page_config(page_title="Caderno de Questões", layout="centered")
 
@@ -331,6 +332,59 @@ st.sidebar.header("Desempenho")
 c_acerto, c_erro = st.sidebar.columns(2)
 c_acerto.metric("Acertos ✅", st.session_state.acertos)
 c_erro.metric("Erros ❌", st.session_state.erros)
+# --- SISTEMA DE SALVAMENTO E RECUPERAÇÃO ---
+st.sidebar.divider()
+st.sidebar.header("💾 Salvar / Carregar Progresso")
+
+# LÓGICA DE SALVAMENTO (Exportar)
+if not st.session_state.df_ativo.empty:
+    # Empacota todo o estado atual em um dicionário
+    estado_atual = {
+        'indice': st.session_state.indice,
+        'acertos': st.session_state.acertos,
+        'erros': st.session_state.erros,
+        # Converte as chaves do dicionário de respostas para string (exigência do formato JSON)
+        'respostas_dadas': {str(k): v for k, v in st.session_state.respostas_dadas.items()},
+        # Transforma o DataFrame da prova atual em formato de dicionário
+        'df_ativo': st.session_state.df_ativo.to_dict(orient='records'),
+        'regras_simulado': st.session_state.regras_simulado
+    }
+    
+    # Converte o pacote para JSON
+    json_string = json.dumps(estado_atual, ensure_ascii=False)
+    
+    st.sidebar.download_button(
+        label="⬇️ Baixar Progresso Atual",
+        data=json_string,
+        file_name="progresso_simulado.json",
+        mime="application/json",
+        use_container_width=True
+    )
+else:
+    st.sidebar.caption("Gere uma bateria de questões para habilitar o salvamento.")
+
+st.sidebar.divider()
+
+# LÓGICA DE CARREGAMENTO (Importar)
+arquivo_upload = st.sidebar.file_uploader("📂 Restaurar sessão anterior", type=["json"])
+
+if arquivo_upload is not None:
+    if st.sidebar.button("Recarregar Progresso", type="primary", use_container_width=True):
+        # Desempacota o arquivo JSON
+        dados = json.load(arquivo_upload)
+        
+        # Injeta os dados de volta na memória do servidor
+        st.session_state.indice = dados.get('indice', 0)
+        st.session_state.acertos = dados.get('acertos', 0)
+        st.session_state.erros = dados.get('erros', 0)
+        # Reconverte as chaves das respostas de string para número
+        st.session_state.respostas_dadas = {int(k): v for k, v in dados.get('respostas_dadas', {}).items()}
+        # Remonta o DataFrame da prova
+        st.session_state.df_ativo = pd.DataFrame(dados.get('df_ativo', []))
+        st.session_state.regras_simulado = dados.get('regras_simulado', [])
+        
+        # Força o aplicativo a recarregar a tela instantaneamente com os novos dados
+        st.rerun()
 
 # --- 5. ÁREA PRINCIPAL DA PROVA ---
 df_prova = st.session_state.df_ativo
