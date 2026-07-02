@@ -125,15 +125,37 @@ if 'df_ativo' not in st.session_state: st.session_state.df_ativo = pd.DataFrame(
 if 'respostas_dadas' not in st.session_state: st.session_state.respostas_dadas = {}
 
 # --- 2. CARREGAMENTO BLINDADO ---
-#
+@st.cache_data
 def carregar_dados():
     try:
+        # Aumentamos o esforço de leitura
         df = pd.read_csv("questoes.csv", sep=";", encoding='utf-8', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
-    except:
-        try:
-            df = pd.read_csv("questoes.csv", sep=";", encoding='latin1', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
-        except:
-            return pd.DataFrame()
+        
+        # DEBUG: Isso vai aparecer na tela e nos dirá o que está acontecendo
+        st.sidebar.write(f"Total de linhas lidas pelo Pandas: {len(df)}")
+        
+        if len(df) < 50:
+            st.sidebar.error("⚠️ Alerta: O arquivo carregou poucas linhas. Verifique se o separador é ';' ou se o arquivo não está truncado.")
+
+    except Exception as e:
+        st.error(f"Erro crítico ao ler o arquivo: {e}")
+        return pd.DataFrame()
+    
+    # [Restante do seu código de limpeza...]
+    mapa_colunas = {}
+    for col in df.columns:
+        c_clean = padronizar(col)
+        if 'id' in c_clean: mapa_colunas[col] = 'ID'
+        elif 'disciplina' in c_clean: mapa_colunas[col] = 'Disciplina'
+        elif 'assunto' in c_clean: mapa_colunas[col] = 'Assunto'
+        elif 'assertiva' in c_clean: mapa_colunas[col] = 'Assertiva'
+        elif 'gabarito' in c_clean: mapa_colunas[col] = 'Gabarito'
+        elif 'comentario' in c_clean: mapa_colunas[col] = 'Comentario'
+        
+    df = df.rename(columns=mapa_colunas)
+    # ... (restante da limpeza) ...
+    return df
+
     
     # MAPEAMENTO INTELIGENTE DE COLUNAS (Resolve o sumiço dos comentários)
     mapa_colunas = {}
