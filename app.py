@@ -319,7 +319,7 @@ st.sidebar.header("Desempenho")
 c_acerto, c_erro, c_total = st.sidebar.columns(3)
 c_acerto.metric("Acertos ✅", st.session_state.acertos)
 c_erro.metric("Erros ❌", st.session_state.erros)
-c_total.metric("TotalL 🎯", st.session_state.acertos + st.session_state.erros)
+c_total.metric("Total 🎯", st.session_state.acertos + st.session_state.erros)
 
 # --- SISTEMA DE SALVAMENTO E RECUPERAÇÃO ---
 st.sidebar.divider()
