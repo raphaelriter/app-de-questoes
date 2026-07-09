@@ -114,7 +114,6 @@ PROPORCOES_INSS = {
         "Contribuinte Individual (RGPS)": 1.0,
         "Carência": 1.0,
     }
-    
 }
 
 # --- 1. INICIALIZAÇÃO DE ESTADOS ---
@@ -124,14 +123,12 @@ if 'erros' not in st.session_state: st.session_state.erros = 0
 if 'regras_simulado' not in st.session_state: st.session_state.regras_simulado = []
 if 'df_ativo' not in st.session_state: st.session_state.df_ativo = pd.DataFrame()
 if 'respostas_dadas' not in st.session_state: st.session_state.respostas_dadas = {}
+if 'tamanho_fonte' not in st.session_state: st.session_state.tamanho_fonte = 18  # INOVAÇÃO 1: Controle de Zoom
 
 # --- 2. CARREGAMENTO BLINDADO (MODO INTELIGENTE) ---
-# O TTL=3600 diz ao sistema para limpar o cache automaticamente a cada hora, 
-# mas se você subir um arquivo novo no GitHub, o cache se invalida.
 @st.cache_data(ttl=3600)
 def carregar_dados():
     try:
-        # AQUI ESTÁ O SEGREDO: O nome do arquivo tem que ser idêntico ao que está no GitHub
         df = pd.read_csv("questoes.csv", sep=";", encoding='utf-8', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
     except:
         try:
@@ -139,18 +136,7 @@ def carregar_dados():
         except:
             return pd.DataFrame()
     
-    # [Restante do seu código de limpeza permanece igual...]
-
-def carregar_dados():
-    try:
-        df = pd.read_csv("questoes.csv", sep=";", encoding='utf-8', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
-    except:
-        try:
-            df = pd.read_csv("questoes.csv", sep=";", encoding='latin1', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
-        except:
-            return pd.DataFrame()
-    
-    # MAPEAMENTO INTELIGENTE DE COLUNAS (Resolve o sumiço dos comentários)
+    # MAPEAMENTO INTELIGENTE DE COLUNAS
     mapa_colunas = {}
     for col in df.columns:
         c_clean = padronizar(col)
@@ -167,11 +153,11 @@ def carregar_dados():
     for col in colunas_esperadas:
         if col not in df.columns: df[col] = "Sem informação"
         
-    # LIMPEZA DE GABARITO (Resolve o erro do Certo/Errado)
+    # LIMPEZA DE GABARITO
     df['Gabarito'] = df['Gabarito'].astype(str).str.replace('"', '').str.replace("'", "").str.strip().str.upper()
     df['Gabarito'] = df['Gabarito'].apply(lambda x: 'C' if x.startswith('C') else ('E' if x.startswith('E') else x))
     
-    # LIMPEZA DE COMENTÁRIO (Remove aspas residuais do limite do CSV)
+    # LIMPEZA DE COMENTÁRIO
     df['Comentario'] = df['Comentario'].astype(str).str.replace(r'^"|"$', '', regex=True).replace('Sem informação', '')
     
     df['Disc_pad'] = df['Disciplina'].apply(padronizar)
@@ -327,30 +313,28 @@ else:
 if st.sidebar.button("Limpar Tela", use_container_width=True):
     limpar_dados()
 
+# INOVAÇÃO 3: Totalizador no painel
 st.sidebar.divider()
 st.sidebar.header("Desempenho")
-c_acerto, c_erro = st.sidebar.columns(2)
+c_acerto, c_erro, c_total = st.sidebar.columns(3)
 c_acerto.metric("Acertos ✅", st.session_state.acertos)
 c_erro.metric("Erros ❌", st.session_state.erros)
+c_total.metric("Total 🎯", st.session_state.acertos + st.session_state.erros)
+
 # --- SISTEMA DE SALVAMENTO E RECUPERAÇÃO ---
 st.sidebar.divider()
 st.sidebar.header("💾 Salvar / Carregar Progresso")
 
-# LÓGICA DE SALVAMENTO (Exportar)
 if not st.session_state.df_ativo.empty:
-    # Empacota todo o estado atual em um dicionário
     estado_atual = {
         'indice': st.session_state.indice,
         'acertos': st.session_state.acertos,
         'erros': st.session_state.erros,
-        # Converte as chaves do dicionário de respostas para string (exigência do formato JSON)
         'respostas_dadas': {str(k): v for k, v in st.session_state.respostas_dadas.items()},
-        # Transforma o DataFrame da prova atual em formato de dicionário
         'df_ativo': st.session_state.df_ativo.to_dict(orient='records'),
         'regras_simulado': st.session_state.regras_simulado
     }
     
-    # Converte o pacote para JSON
     json_string = json.dumps(estado_atual, ensure_ascii=False)
     
     st.sidebar.download_button(
@@ -365,25 +349,19 @@ else:
 
 st.sidebar.divider()
 
-# LÓGICA DE CARREGAMENTO (Importar)
 arquivo_upload = st.sidebar.file_uploader("📂 Restaurar sessão anterior", type=["json"])
 
 if arquivo_upload is not None:
     if st.sidebar.button("Recarregar Progresso", type="primary", use_container_width=True):
-        # Desempacota o arquivo JSON
         dados = json.load(arquivo_upload)
         
-        # Injeta os dados de volta na memória do servidor
         st.session_state.indice = dados.get('indice', 0)
         st.session_state.acertos = dados.get('acertos', 0)
         st.session_state.erros = dados.get('erros', 0)
-        # Reconverte as chaves das respostas de string para número
         st.session_state.respostas_dadas = {int(k): v for k, v in dados.get('respostas_dadas', {}).items()}
-        # Remonta o DataFrame da prova
         st.session_state.df_ativo = pd.DataFrame(dados.get('df_ativo', []))
         st.session_state.regras_simulado = dados.get('regras_simulado', [])
         
-        # Força o aplicativo a recarregar a tela instantaneamente com os novos dados
         st.rerun()
 
 # --- 5. ÁREA PRINCIPAL DA PROVA ---
@@ -408,8 +386,26 @@ questao = df_prova.iloc[idx_atual]
 gabarito_real = str(questao['Gabarito']).strip().upper()
 ja_respondida = idx_atual in st.session_state.respostas_dadas
 
-st.caption(f"{questao['Disciplina']} ➔ {questao['Assunto']} | ID Original: {questao['ID']}")
-st.write(f"**{questao['Assertiva']}**")
+# INOVAÇÃO 1: Botões de Zoom alinhados com o cabeçalho da questão
+col_cabecalho, col_menos, col_mais = st.columns([8, 1, 1])
+with col_cabecalho:
+    st.caption(f"{questao['Disciplina']} ➔ {questao['Assunto']} | ID Original: {questao['ID']}")
+with col_menos:
+    if st.button("A-", use_container_width=True):
+        st.session_state.tamanho_fonte = max(12, st.session_state.tamanho_fonte - 2)
+        st.rerun()
+with col_mais:
+    if st.button("A+", use_container_width=True):
+        st.session_state.tamanho_fonte = min(40, st.session_state.tamanho_fonte + 2)
+        st.rerun()
+
+# Injeta a formatação de fonte dinâmica
+st.markdown(
+    f"<div style='font-size: {st.session_state.tamanho_fonte}px; font-weight: bold; margin-bottom: 20px; line-height: 1.5;'>"
+    f"{questao['Assertiva']}"
+    f"</div>", 
+    unsafe_allow_html=True
+)
 
 col1, col2 = st.columns(2)
 with col1:
@@ -420,8 +416,10 @@ with col2:
 if ja_respondida:
     escolha_feita = st.session_state.respostas_dadas[idx_atual]
     st.divider()
+    
+    # INOVAÇÃO 2: Gabarito revelado em ambas as situações
     if escolha_feita == gabarito_real:
-        st.success("✅ Resposta Correta!")
+        st.success(f"✅ Resposta Correta! O gabarito é '{gabarito_real}'.")
     else:
         st.error(f"❌ Resposta Incorreta. O gabarito é '{gabarito_real}'.")
     
