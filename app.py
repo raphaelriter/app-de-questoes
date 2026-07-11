@@ -409,9 +409,9 @@ st.markdown(
 
 col1, col2 = st.columns(2)
 with col1:
-    st.button("CERTO", key=f"c_{idx_atual}", on_click=responder, args=("CERTO", gabarito_real), disabled=ja_respondida, use_container_width=True)
+    st.button("CERTO", key=f"c_{idx_atual}", on_click=responder, args=("C", gabarito_real), disabled=ja_respondida, use_container_width=True)
 with col2:
-    st.button("ERRADO", key=f"e_{idx_atual}", on_click=responder, args=("ERRADO", gabarito_real), disabled=ja_respondida, use_container_width=True)
+    st.button("ERRADO", key=f"e_{idx_atual}", on_click=responder, args=("E", gabarito_real), disabled=ja_respondida, use_container_width=True)
 
 if ja_respondida:
     escolha_feita = st.session_state.respostas_dadas[idx_atual]
