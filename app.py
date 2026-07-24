@@ -67,7 +67,43 @@ def extrair_questoes_com_repescagem(df_fonte, dicionario_cotas, d_pad):
     return frames
 
 # ==========================================
-# ⚙️ MOTOR DE PROPORÇÕES (APENAS PREVIDENCIÁRIO)
+# ⚙️ INTERPRETADOR DE REGRAS DE EDITAL
+# ==========================================
+def processar_regras(arquivo):
+    regras = {}
+    if arquivo is not None:
+        try:
+            conteudo = arquivo.getvalue().decode('utf-8').splitlines()
+        except:
+            conteudo = arquivo.getvalue().decode('latin1').splitlines()
+            
+        disciplina_atual = None
+        
+        for linha in conteudo:
+            linha = linha.strip()
+            if not linha: continue
+            
+            # Se a linha não tem ponto e vírgula, é o cabeçalho da Disciplina
+            if ';' not in linha:
+                disciplina_atual = linha.strip()
+                regras[disciplina_atual] = {}
+            else:
+                if disciplina_atual:
+                    partes = linha.split(';')
+                    if len(partes) >= 2:
+                        assunto = partes[0].strip()
+                        try:
+                            # Limpa tudo que não for número, vírgula ou ponto (remove o '%', por exemplo)
+                            valor_str = re.sub(r'[^\d,.-]', '', partes[1])
+                            if valor_str:
+                                valor_str = valor_str.replace(',', '.')
+                                regras[disciplina_atual][assunto] = float(valor_str)
+                        except ValueError:
+                            pass # Ignora linhas de cabeçalho tipo "assunto;percentual"
+    return regras
+
+# ==========================================
+# ⚙️ MOTOR DE PROPORÇÕES PADRÃO (HARDCODED)
 # ==========================================
 PROPORCOES_INSS = {
    "Direito Previdenciário": {
@@ -177,29 +213,26 @@ def limpar_dataframe(df):
 def carregar_csv_local():
     if not os.path.exists("questoes.csv"): return pd.DataFrame()
     try:
-        df = pd.read_csv("questoes.csv", sep=";", encoding='utf-8', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
+        df = pd.read_csv("questoes.csv", sep=";", encoding='utf-8', on_bad_lines='skip')
     except:
-        df = pd.read_csv("questoes.csv", sep=";", encoding='latin1', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
+        df = pd.read_csv("questoes.csv", sep=";", encoding='latin1', on_bad_lines='skip')
     return limpar_dataframe(df)
 
 def montar_banco_final(arquivos_upload):
     frames = []
-    # 1. Carrega o arquivo padrão (se existir)
     df_padrao = carregar_csv_local()
     if not df_padrao.empty:
         frames.append(df_padrao)
         
-    # 2. Carrega todos os arquivos anexados pelo usuário
     if arquivos_upload:
         for arq in arquivos_upload:
             try:
-                df_extra = pd.read_csv(arq, sep=";", encoding='utf-8', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
+                df_extra = pd.read_csv(arq, sep=";", encoding='utf-8', on_bad_lines='skip')
             except:
                 arq.seek(0)
-                df_extra = pd.read_csv(arq, sep=";", encoding='latin1', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
+                df_extra = pd.read_csv(arq, sep=";", encoding='latin1', on_bad_lines='skip')
             frames.append(limpar_dataframe(df_extra))
             
-    # 3. Funde tudo e remove questões duplicadas
     if frames:
         df_final = pd.concat(frames).drop_duplicates(subset=['Assertiva']).reset_index(drop=True)
         return df_final
@@ -213,14 +246,22 @@ def resetar_progresso():
     st.session_state.erros = 0
     st.session_state.respostas_dadas = {}
 
-def gerar_bateria(prova, modo, disc, ass, qtd_desejada, df_base):
+def gerar_bateria(prova, modo, disc, ass, qtd_desejada, df_base, proporcoes_finais):
     frames = []
     
+    # Função auxiliar para garantir que a disciplina enviada bate perfeitamente com a do dicionário
+    def encontrar_regras(disc_nome):
+        disc_pad = padronizar(disc_nome)
+        for d, regras in proporcoes_finais.items():
+            if padronizar(d) == disc_pad:
+                return regras
+        return None
+        
     if prova == "INSS" and modo == "Simulado":
-        pesos_disciplinas = {d: sum(assuntos.values()) for d, assuntos in PROPORCOES_INSS.items()}
+        pesos_disciplinas = {d: sum(assuntos.values()) for d, assuntos in proporcoes_finais.items()}
         vagas_disciplinas = distribuir_vagas_exatas(pesos_disciplinas, qtd_desejada)
         
-        for d, assuntos_dict in PROPORCOES_INSS.items():
+        for d, assuntos_dict in proporcoes_finais.items():
             d_pad = padronizar(d)
             vagas_d = vagas_disciplinas[d]
             vagas_assuntos = distribuir_vagas_exatas(assuntos_dict, vagas_d)
@@ -230,10 +271,10 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada, df_base):
                 
     elif prova == "INSS" and modo == "Questões":
         if disc == "Todas":
-            pesos_disciplinas = {d: sum(assuntos.values()) for d, assuntos in PROPORCOES_INSS.items()}
+            pesos_disciplinas = {d: sum(assuntos.values()) for d, assuntos in proporcoes_finais.items()}
             vagas_disciplinas = distribuir_vagas_exatas(pesos_disciplinas, qtd_desejada)
             
-            for d, assuntos_dict in PROPORCOES_INSS.items():
+            for d, assuntos_dict in proporcoes_finais.items():
                 d_pad = padronizar(d)
                 vagas_d = vagas_disciplinas[d]
                 vagas_assuntos = distribuir_vagas_exatas(assuntos_dict, vagas_d)
@@ -243,11 +284,13 @@ def gerar_bateria(prova, modo, disc, ass, qtd_desejada, df_base):
                         
         elif ass == "Todos":
             d_pad = padronizar(disc)
-            if disc in PROPORCOES_INSS:
-                vagas_assuntos = distribuir_vagas_exatas(PROPORCOES_INSS[disc], qtd_desejada)
+            regras_disc = encontrar_regras(disc)
+            if regras_disc:
+                vagas_assuntos = distribuir_vagas_exatas(regras_disc, qtd_desejada)
                 frames_d = extrair_questoes_com_repescagem(df_base, vagas_assuntos, d_pad)
                 frames.extend(frames_d)
             else:
+                # Se não houver regra de porcentagem para esta disciplina, extrai aleatoriamente
                 filtro = df_base[df_base['Disc_pad'] == d_pad]
                 qtd_real = min(qtd_desejada, len(filtro))
                 if qtd_real > 0: frames.append(filtro.sample(n=qtd_real))
@@ -289,13 +332,11 @@ def responder(escolha, gabarito):
     st.session_state.respostas_dadas[idx] = escolha
     questao_atual = st.session_state.df_ativo.iloc[idx]
     
-    # Atualiza Progresso da Sessão
     if escolha == gabarito:
         st.session_state.acertos += 1
     else:
         st.session_state.erros += 1
         
-    # INOVAÇÃO 2: Salva no Histórico Global Permanente
     chave_q = padronizar(questao_atual['Assertiva'])
     if chave_q not in st.session_state.historico_global:
         st.session_state.historico_global[chave_q] = {'acertos': 0, 'erros': 0, 'disciplina': questao_atual['Disciplina']}
@@ -319,12 +360,25 @@ def limpar_dados():
 st.sidebar.header("📂 Bancos de Questões")
 arquivos_anexo = st.sidebar.file_uploader("Anexar mais arquivos CSV (Opcional)", type=["csv"], accept_multiple_files=True)
 
-# Monta o banco de dados mestre unindo o questoes.csv com os anexos
 df_mestre = montar_banco_final(arquivos_anexo)
 
 if df_mestre.empty:
     st.sidebar.error("Nenhum arquivo de questões encontrado. Suba um CSV.")
     st.stop()
+
+# --- INTEGRAÇÃO DAS REGRAS CUSTOMIZADAS ---
+st.sidebar.divider()
+st.sidebar.header("⚖️ Regras do Edital (Proporções)")
+arquivo_regras = st.sidebar.file_uploader("Anexar Regras Customizadas (CSV/TXT)", type=["csv", "txt"])
+
+# Processa o arquivo do usuário e funde com as proporções padrão do INSS
+regras_customizadas = processar_regras(arquivo_regras)
+proporcoes_finais = PROPORCOES_INSS.copy()
+for disc, ass_dict in regras_customizadas.items():
+    proporcoes_finais[disc] = ass_dict
+
+if regras_customizadas:
+    st.sidebar.success(f"Regras carregadas para {len(regras_customizadas)} disciplina(s).")
 
 st.sidebar.divider()
 st.sidebar.header("Configurar Bateria")
@@ -353,7 +407,7 @@ qtd_sel = st.sidebar.number_input("5. Qtd", min_value=1, value=100)
 
 if prova_sel == "INSS":
     if st.sidebar.button(f"🚀 Gerar {modo_sel} INSS", type="primary", use_container_width=True):
-        gerar_bateria(prova_sel, modo_sel, disc_sel, ass_sel, qtd_sel, df_mestre)
+        gerar_bateria(prova_sel, modo_sel, disc_sel, ass_sel, qtd_sel, df_mestre, proporcoes_finais)
 else:
     st.sidebar.caption("Modo Manual: Construa a prova bloco a bloco.")
     if st.sidebar.button("➕ Selecionar Assunto"):
@@ -363,7 +417,7 @@ else:
         for r in st.session_state.regras_simulado:
             st.sidebar.text(f"• {r['Assunto']} ({r['Qtd']}q)")
         if st.sidebar.button("Gerar Prova Manual", type="primary", use_container_width=True):
-            gerar_bateria(prova_sel, modo_sel, None, None, None, df_mestre)
+            gerar_bateria(prova_sel, modo_sel, None, None, None, df_mestre, proporcoes_finais)
 
 if st.sidebar.button("Limpar Tela", use_container_width=True):
     limpar_dados()
@@ -408,7 +462,6 @@ if arquivo_upload is not None:
         st.rerun()
 
 # --- 5. ÁREA PRINCIPAL DA PROVA ---
-# INOVAÇÃO 3: Divisão em Abas (Tabs) para separar a resolução dos Gráficos
 tab_prova, tab_estatisticas = st.tabs(["📝 Caderno de Resolução", "📊 Dashboard Global"])
 
 with tab_prova:
@@ -435,7 +488,6 @@ with tab_prova:
         with col_cabecalho:
             st.caption(f"{questao['Disciplina']} ➔ {questao['Assunto']} | ID Original: {questao['ID']}")
             
-            # INOVAÇÃO 4: Raio-X Histórico da Questão Atual
             chave_q = padronizar(questao['Assertiva'])
             hist_q = st.session_state.historico_global.get(chave_q, {'acertos': 0, 'erros': 0})
             if hist_q['acertos'] > 0 or hist_q['erros'] > 0:
@@ -476,7 +528,6 @@ with tab_prova:
             if comentario_exibir and comentario_exibir != 'nan':
                 st.info(f"**Comentário:** {comentario_exibir}")
 
-
 # ==========================================
 # 📊 ABA DE ESTATÍSTICAS E GRÁFICOS
 # ==========================================
@@ -486,7 +537,6 @@ with tab_estatisticas:
     if not st.session_state.historico_global:
         st.info("Você ainda não respondeu nenhuma questão para gerar estatísticas.")
     else:
-        # Cálculos globais
         total_acertos = sum(item['acertos'] for item in st.session_state.historico_global.values())
         total_erros = sum(item['erros'] for item in st.session_state.historico_global.values())
         total_resolvidas = total_acertos + total_erros
@@ -501,7 +551,6 @@ with tab_estatisticas:
         st.divider()
         st.subheader("Desempenho por Disciplina")
         
-        # Consolida os dados por disciplina para o gráfico
         dados_grafico = []
         for valor in st.session_state.historico_global.values():
             disc = valor.get('disciplina', 'Desconhecida').title()
@@ -510,8 +559,5 @@ with tab_estatisticas:
         if dados_grafico:
             df_hist = pd.DataFrame(dados_grafico)
             df_agrupado = df_hist.groupby('Disciplina').sum().reset_index()
-            
-            # Usando o gráfico de barras nativo do Streamlit
             st.bar_chart(df_agrupado.set_index('Disciplina'))
-            
             st.caption("Dica: Os dados deste painel são salvos automaticamente no servidor à medida que você resolve as questões. O botão 'Baixar Progresso Atual' na lateral salva apenas a bateria atual.")
